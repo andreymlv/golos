@@ -4,12 +4,9 @@ VERSION = 0.1
 # paths
 PREFIX = /usr/local
 
-X11INC = /usr/X11R6/include
-X11LIB = /usr/X11R6/lib
-
 # includes and libs
 INCS = 
-LIBS = -ldl -lm -lpthread
+LIBS = -lm -lpthread
 
 # flags
 CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_XOPEN_SOURCE=700L -DVERSION=\"${VERSION}\"

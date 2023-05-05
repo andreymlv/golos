@@ -8,7 +8,7 @@ Speak with your friends.
 git clone --recursive https://github.com/andreymlv/golos.git
 cd golos
 make
-./server <port>
-./client <ip> <port>
+./server [port]
+./client <ip> [port]
 ```
 

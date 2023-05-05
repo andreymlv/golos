@@ -35,7 +35,7 @@ clean:
 dist: clean
 	mkdir -p golos-${VERSION}
 	cp -R LICENSE Makefile README.md config.mk ${CLIENTSRC} ${SERVERSRC}\
-		golos-${VERSION}
+		golos-${VERSION} util.h deps/miniaudio/miniaudio.h
 	tar -cf golos-${VERSION}.tar golos-${VERSION}
 	gzip golos-${VERSION}.tar
 	rm -rf golos-${VERSION}
@@ -50,5 +50,8 @@ install: all
 uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/golos-client
 	rm -f ${DESTDIR}${PREFIX}/bin/golos-server
+
+clangd: clean
+	bear -- make
 
 .PHONY: all options clean dist install uninstall
