@@ -12,7 +12,7 @@ LIBS = -lm -lpthread
 CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_XOPEN_SOURCE=700L -DVERSION=\"${VERSION}\"
 CFLAGS   = -g -std=c99 -pedantic -Wall -Wextra -O0 ${INCS} ${CPPFLAGS}
 # CFLAGS   = -std=c99 -pedantic -Wall -Wextra -Wno-deprecated-declarations -Os ${INCS} ${CPPFLAGS}
-LDFLAGS  = ${LIBS}
+LDFLAGS  = ${LIBS} -fuse-ld=mold
 
 # compiler and linker
-CC = cc
+CC = ccache cc
