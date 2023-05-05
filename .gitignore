@@ -1,0 +1,5 @@
+.cache/clangd/index
+*.o
+client
+server
+compile_commands.json
