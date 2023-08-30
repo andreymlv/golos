@@ -5,14 +5,14 @@ VERSION = 0.1
 PREFIX = /usr/local
 
 # includes and libs
-INCS = 
-LIBS = -lm -lpthread
+INCS = `pkg-config --cflags rnnoise`
+LIBS = -lm -lpthread `pkg-config --libs rnnoise`
 
 # flags
 CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_XOPEN_SOURCE=700L -DVERSION=\"${VERSION}\"
-CFLAGS   = -g -std=c99 -pedantic -Wall -Wextra -O0 ${INCS} ${CPPFLAGS}
-# CFLAGS   = -std=c99 -pedantic -Wall -Wextra -Wno-deprecated-declarations -Os ${INCS} ${CPPFLAGS}
-LDFLAGS  = ${LIBS} -fuse-ld=mold
+CFLAGS   = -g -std=c99 -pedantic -Wall -Wextra -Og ${INCS} ${CPPFLAGS}
+# CFLAGS   = -std=c99 -pedantic -Wall -Wextra -Wno-deprecated-declarations -O3 ${INCS} ${CPPFLAGS}
+LDFLAGS  = ${LIBS}
 
 # compiler and linker
-CC = ccache cc
+CC = gcc

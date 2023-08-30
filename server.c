@@ -10,7 +10,7 @@
 ma_uint32 g_decoderCount;
 ma_decoder *g_pDecoders;
 
-static void usage(void) { die("usage: golos-server [port]\n"); }
+static void usage(const char*const program) { die("usage: %s [port]\n", program); }
 
 static ma_data_source *next_callback_tail(ma_data_source *pDataSource) {
   MA_ASSERT(g_decoderCount >
@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
   ma_device_config deviceConfig;
   ma_device device;
   if (argc > 2) {
-    usage();
+    usage(argv[0]);
   } else if (argc == 2) {
     port = argv[1];
   }
