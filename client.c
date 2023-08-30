@@ -10,7 +10,7 @@ DenoiseState *st;
 
 void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                    ma_uint32 frameCount) {
-  // Cast to S16.
+  // Cast to U32.
   for (ma_uint32 i = 0; i < frameCount; i += 1) {
     pTempIn[i] = (float)((ma_int16 *)pInput)[i];
   }
