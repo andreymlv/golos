@@ -4,3 +4,6 @@
 [submodule "deps/rnnoise"]
 	path = deps/rnnoise
 	url = https://gitlab.xiph.org/xiph/rnnoise.git
+[submodule "deps/zlib"]
+	path = deps/zlib
+	url = https://github.com/madler/zlib.git
