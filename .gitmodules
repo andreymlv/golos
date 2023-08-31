@@ -7,3 +7,6 @@
 [submodule "deps/zlib"]
 	path = deps/zlib
 	url = https://github.com/madler/zlib.git
+[submodule "deps/Nuklear"]
+	path = deps/Nuklear
+	url = https://github.com/Immediate-Mode-UI/Nuklear.git
