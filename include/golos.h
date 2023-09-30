@@ -24,6 +24,38 @@ struct go_device_config {
   ma_uint32 sample_rate;
 };
 
+struct go_client_data_socket {
+  struct go_socket client;
+  struct go_socket control;
+  ma_decoder decoder;
+};
+
+struct go_socket go_client_connect(char *address, int port) {
+  struct go_socket client;
+  if ((client.fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  printf("Create socket\n");
+
+  memset(&client.addr, 0, sizeof(struct sockaddr_in));
+  client.addr.sin_family = AF_INET;
+  if (inet_pton(AF_INET, address, &client.addr.sin_addr.s_addr) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  client.addr.sin_port = htons(port);
+
+  if (connect(client.fd, (struct sockaddr *)&client.addr,
+              sizeof(struct sockaddr_in)) != 0) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  printf("Connect by socket\n");
+
+  return client;
+}
+
 /**
  * @brief Setup socket for accepting new clients.
  *

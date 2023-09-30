@@ -12,14 +12,10 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include <external/miniaudio.h>
 
-struct go_client_state {
-  ma_decoder decoder;
-  struct go_socket client;
-};
-
 void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                    ma_uint32 frameCount) {
-  struct go_client_state *state = (struct go_client_state *)pDevice->pUserData;
+  struct go_client_data_socket *state =
+      (struct go_client_data_socket *)pDevice->pUserData;
   if (state == NULL) {
     return;
   }
@@ -36,12 +32,13 @@ void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
     close(state->client.fd);
     exit(EXIT_FAILURE);
   }
-  if (send(state->client.fd, buffer, sizeof(double) * frameCount, 0) == -1) {
+  int sended = send(state->client.fd, buffer, sizeof(double) * frameCount, 0);
+  if (sended == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
     close(state->client.fd);
     exit(EXIT_FAILURE);
   };
-  printf("Sended %d frames\n", frameCount);
+  printf("Sended %d frames with %d bytes\n", frameCount, sended);
   free(buffer);
   (void)pInput;
   (void)pOutput;
@@ -101,28 +98,9 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  struct go_client_state state;
-
-  if ((state.client.fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-    fprintf(stderr, "%s\n", strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-  printf("Create socket\n");
-
-  memset(&state.client.addr, 0, sizeof(struct sockaddr_in));
-  state.client.addr.sin_family = AF_INET;
-  if (inet_pton(AF_INET, address, &state.client.addr.sin_addr.s_addr) == -1) {
-    fprintf(stderr, "%s\n", strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-  state.client.addr.sin_port = htons(port);
-
-  if (connect(state.client.fd, (struct sockaddr *)&state.client.addr,
-              sizeof(struct sockaddr_in)) != 0) {
-    fprintf(stderr, "%s\n", strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-  printf("Connect by socket\n");
+  struct go_client_data_socket state;
+  state.client = go_client_connect(address, port);
+  state.control = go_client_connect(address, port + 1);
 
   ma_result result;
   ma_device_config deviceConfig;
@@ -153,7 +131,13 @@ int main(int argc, char *argv[]) {
   }
   printf("Init device\n");
 
-  send(state.client.fd, &goDeviceConfig, sizeof(struct go_device_config), 0);
+  if (send(state.client.fd, &goDeviceConfig, sizeof(struct go_device_config),
+           0) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    ma_device_uninit(&device);
+    ma_decoder_uninit(&state.decoder);
+    return -4;
+  }
 
   if (ma_device_start(&device) != MA_SUCCESS) {
     printf("Failed to start playback device.\n");
@@ -163,12 +147,12 @@ int main(int argc, char *argv[]) {
   }
   printf("Device start\n");
 
-  printf("Press Enter to quit...");
+  puts("Press enter to stop");
   getchar();
+  send(state.control.fd, NULL, 1, 0);
 
   ma_device_uninit(&device);
   ma_decoder_uninit(&state.decoder);
-
   close(state.client.fd);
   return EXIT_SUCCESS;
 }

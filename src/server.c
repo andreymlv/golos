@@ -23,11 +23,15 @@ void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
   }
-  if (recv(*connection_fd, buffer, sizeof(double) * frameCount, 0) == -1) {
+  int read = recv(*connection_fd, buffer, sizeof(double) * frameCount, 0);
+  if (read == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
   };
-  printf("Received %d frames\n", frameCount);
+  if (read == 0) {
+    exit(EXIT_SUCCESS);
+  }
+  printf("Received %d frames with %d bytes\n", frameCount, read);
   memcpy(pOutput, buffer, sizeof(double) * frameCount);
   free(buffer);
 }
@@ -65,6 +69,7 @@ int main(int argc, char *argv[]) {
   }
 
   struct go_socket server = go_server_init(port, 10);
+  struct go_socket control = go_server_init(port + 1, 10);
 
   struct sockaddr_in client_addr;
   socklen_t client_len;
@@ -72,6 +77,8 @@ int main(int argc, char *argv[]) {
     client_len = sizeof(struct sockaddr_in);
     int connection_fd =
         accept(server.fd, (struct sockaddr *)&client_addr, &client_len);
+    int connection_control_fd =
+        accept(control.fd, (struct sockaddr *)&client_addr, &client_len);
     char client_ip[INET_ADDRSTRLEN];
     if (inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN) ==
         NULL) {
@@ -88,16 +95,18 @@ int main(int argc, char *argv[]) {
     if (pid == 0) {
       close(server.fd);
 
-      // TODO(andreymlv): Receive from client outputFormat, outputChannels,
-      // outputSampleRate
       ma_result result;
       ma_device_config deviceConfig;
       ma_device device;
       struct go_device_config goDeviceConfig;
 
-      recv(connection_fd, &goDeviceConfig, sizeof(struct go_device_config), 0);
+      if (recv(connection_fd, &goDeviceConfig, sizeof(struct go_device_config),
+               0) == -1) {
+        fprintf(stderr, "%s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+      }
+      printf("Received config\n");
 
-      // TODO(andreymlv): fill there all
       deviceConfig = ma_device_config_init(ma_device_type_playback);
       deviceConfig.playback.format = goDeviceConfig.format;
       deviceConfig.playback.channels = goDeviceConfig.channels;
@@ -116,14 +125,11 @@ int main(int argc, char *argv[]) {
         return -4;
       }
 
-      printf("Press Enter to close connection...");
-      getchar();
-
-      char *hello = "Hello, World!\n";
-      if (send(connection_fd, hello, strlen(hello), 0) == -1) {
+      if (recv(connection_control_fd, NULL, 1, 0) == -1) {
         fprintf(stderr, "%s\n", strerror(errno));
         exit(EXIT_FAILURE);
-      };
+      }
+
       close(connection_fd);
 
       ma_device_uninit(&device);
