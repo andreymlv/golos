@@ -131,6 +131,7 @@ int main(int argc, char *argv[]) {
       }
 
       close(connection_fd);
+      close(connection_control_fd);
 
       ma_device_uninit(&device);
       printf("Close connection\n");

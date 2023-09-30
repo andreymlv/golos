@@ -154,5 +154,6 @@ int main(int argc, char *argv[]) {
   ma_device_uninit(&device);
   ma_decoder_uninit(&state.decoder);
   close(state.client.fd);
+  close(state.control.fd);
   return EXIT_SUCCESS;
 }
