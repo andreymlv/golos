@@ -8,7 +8,7 @@ Speak with your friends.
 git clone --recursive https://github.com/andreymlv/golos.git
 cd golos
 make
-./server [port]
-./client <ip> [port]
+./server -p [port]
+./client -a <ip> -p [port] -f [mp3 or wav or flac file]
 ```
 

@@ -1,55 +1,174 @@
-#include <arpa/inet.h>
+#include "golos.h"
+
+#include <ctype.h>
 #include <errno.h>
-#include <netdb.h>
-#include <netinet/in.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
 
-static int init_socket(char **hostname, char **port, struct addrinfo *p) {
-  int sockfd;
-  struct addrinfo hints, *servinfo;
-  int rv;
-  memset(&hints, 0, sizeof hints);
-  hints.ai_family = AF_INET6; // set to AF_INET to use IPv4
-  hints.ai_socktype = SOCK_DGRAM;
-  if ((rv = getaddrinfo(*hostname, *port, &hints, &servinfo)) != 0) {
-    fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-    return 1;
-  }
-  for (p = servinfo; p != NULL; p = p->ai_next) {
-    if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
-      perror("talker: socket");
-      continue;
-    }
+#define MINIAUDIO_IMPLEMENTATION
+#include <external/miniaudio.h>
 
-    break;
+struct go_client_state {
+  ma_decoder decoder;
+  struct go_socket client;
+};
+
+void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
+                   ma_uint32 frameCount) {
+  struct go_client_state *state = (struct go_client_state *)pDevice->pUserData;
+  if (state == NULL) {
+    return;
   }
-  freeaddrinfo(servinfo);
-  if (p == NULL) {
-    fprintf(stderr, "talker: failed to create socket\n");
-    return 2;
+
+  double *buffer = calloc(frameCount, sizeof(double));
+  if (buffer == NULL) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    close(state->client.fd);
+    exit(EXIT_FAILURE);
   }
-  return sockfd;
+  if (ma_decoder_read_pcm_frames(&state->decoder, buffer, frameCount, NULL) !=
+      MA_SUCCESS) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    close(state->client.fd);
+    exit(EXIT_FAILURE);
+  }
+  if (send(state->client.fd, buffer, sizeof(double) * frameCount, 0) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    close(state->client.fd);
+    exit(EXIT_FAILURE);
+  };
+  printf("Sended %d frames\n", frameCount);
+  free(buffer);
+  (void)pInput;
+  (void)pOutput;
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 4) {
-    fprintf(stderr, "usage: %s hostname port message\n", argv[0]);
-    exit(1);
+  uint16_t port = 0;
+  char *address = NULL;
+  char *file = NULL;
+  int opt = -1;
+
+  while ((opt = getopt(argc, argv, "a:p:f:")) != -1) {
+    switch (opt) {
+    case 'a': {
+      address = optarg;
+      break;
+    }
+    case 'p': {
+      char *endptr;
+      port = strtoull(optarg, &endptr, 10);
+      if (errno != 0) {
+        fprintf(stderr, "%s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+      }
+      if (endptr == optarg) {
+        fprintf(stderr, "No digits were found\n");
+        exit(EXIT_FAILURE);
+      }
+      break;
+    }
+    case 'f': {
+      file = optarg;
+      break;
+    }
+    default: {
+      fprintf(stderr, "Usage: %s [-a address] [-p port] [-f file]\n", argv[0]);
+      exit(EXIT_FAILURE);
+    }
+    }
   }
-  struct addrinfo *p;
-  int sockfd = init_socket(&argv[1], &argv[2], p);
-  int numbytes;
-  if ((numbytes = sendto(sockfd, argv[3], strlen(argv[3]), 0, p->ai_addr,
-                         p->ai_addrlen)) == -1) {
-    perror("talker: sendto");
-    exit(1);
+
+  if (address == NULL) {
+    fprintf(stderr, "The -a option is required.\n");
+    fprintf(stderr, "Usage: %s [-a address] [-p port] [-f file]\n", argv[0]);
+    exit(EXIT_FAILURE);
   }
-  printf("talker: sent %d bytes to %s\n", numbytes, argv[1]);
-  close(sockfd);
-  return 0;
+
+  if (port == 0) {
+    fprintf(stderr, "The -p option is required.\n");
+    fprintf(stderr, "Usage: %s [-a address] [-p port] [-f file]\n", argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  if (file == NULL) {
+    fprintf(stderr, "The -f option is required.\n");
+    fprintf(stderr, "Usage: %s [-a address] [-p port] [-f file]\n", argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  struct go_client_state state;
+
+  if ((state.client.fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  printf("Create socket\n");
+
+  memset(&state.client.addr, 0, sizeof(struct sockaddr_in));
+  state.client.addr.sin_family = AF_INET;
+  if (inet_pton(AF_INET, address, &state.client.addr.sin_addr.s_addr) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  state.client.addr.sin_port = htons(port);
+
+  if (connect(state.client.fd, (struct sockaddr *)&state.client.addr,
+              sizeof(struct sockaddr_in)) != 0) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  printf("Connect by socket\n");
+
+  ma_result result;
+  ma_device_config deviceConfig;
+  ma_device device;
+  struct go_device_config goDeviceConfig;
+
+  result = ma_decoder_init_file(file, NULL, &state.decoder);
+  if (result != MA_SUCCESS) {
+    printf("Could not load file: %s\n", argv[1]);
+    return -2;
+  }
+  printf("Init file\n");
+
+  deviceConfig = ma_device_config_init(ma_device_type_playback);
+  deviceConfig.playback.format = state.decoder.outputFormat;
+  deviceConfig.playback.channels = state.decoder.outputChannels;
+  deviceConfig.sampleRate = state.decoder.outputSampleRate;
+  goDeviceConfig.format = state.decoder.outputFormat;
+  goDeviceConfig.channels = state.decoder.outputChannels;
+  goDeviceConfig.sample_rate = state.decoder.outputSampleRate;
+  deviceConfig.dataCallback = data_callback;
+  deviceConfig.pUserData = &state;
+
+  if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
+    printf("Failed to open playback device.\n");
+    ma_decoder_uninit(&state.decoder);
+    return -3;
+  }
+  printf("Init device\n");
+
+  send(state.client.fd, &goDeviceConfig, sizeof(struct go_device_config), 0);
+
+  if (ma_device_start(&device) != MA_SUCCESS) {
+    printf("Failed to start playback device.\n");
+    ma_device_uninit(&device);
+    ma_decoder_uninit(&state.decoder);
+    return -4;
+  }
+  printf("Device start\n");
+
+  printf("Press Enter to quit...");
+  getchar();
+
+  ma_device_uninit(&device);
+  ma_decoder_uninit(&state.decoder);
+
+  close(state.client.fd);
+  return EXIT_SUCCESS;
 }
