@@ -24,21 +24,23 @@ void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   if (buffer == NULL) {
     fprintf(stderr, "%s\n", strerror(errno));
     close(state->client.fd);
-    exit(EXIT_FAILURE);
+    close(state->control.fd);
+    return;
   }
   if (ma_decoder_read_pcm_frames(&state->decoder, buffer, frameCount, NULL) !=
       MA_SUCCESS) {
     fprintf(stderr, "%s\n", strerror(errno));
     close(state->client.fd);
-    exit(EXIT_FAILURE);
+    close(state->control.fd);
+    return;
   }
   int sended = send(state->client.fd, buffer, sizeof(double) * frameCount, 0);
   if (sended == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
     close(state->client.fd);
-    exit(EXIT_FAILURE);
+    close(state->control.fd);
+    return;
   };
-  printf("Sended %d frames with %d bytes\n", frameCount, sended);
   free(buffer);
   (void)pInput;
   (void)pOutput;
@@ -147,9 +149,29 @@ int main(int argc, char *argv[]) {
   }
   printf("Device start\n");
 
-  puts("Press enter to stop");
-  getchar();
-  send(state.control.fd, NULL, 1, 0);
+  puts("Type /help for list of commands");
+  char *line = NULL;
+  size_t size = 0;
+  while (true) {
+    printf("> ");
+    if (getline(&line, &size, stdin) == -1) {
+      fprintf(stderr, "%s\n", strerror(errno));
+      break;
+    }
+    if (strcmp(line, "/close\n") == 0) {
+      send(state.control.fd, NULL, 1, 0);
+      break;
+    }
+    if (strcmp(line, "/help\n") == 0) {
+      printf("Available commands:\n");
+      printf("\t\t/help\t\t - show this message\n");
+      printf("\t\t/close\t\t - close connection\n");
+    }
+    printf("Available commands:\n");
+    printf("\t\t/help\t\t - show all commands\n");
+    printf("\t\t/close\t\t - close connection\n");
+  }
+  free(line);
 
   ma_device_uninit(&device);
   ma_decoder_uninit(&state.decoder);
