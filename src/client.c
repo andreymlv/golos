@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #define MINIAUDIO_IMPLEMENTATION
-#include <external/miniaudio.h>
+#include <miniaudio.h>
 
 void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                    ma_uint32 frameCount) {
@@ -25,21 +25,21 @@ void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
     fprintf(stderr, "%s\n", strerror(errno));
     close(state->client.fd);
     close(state->control.fd);
-    return;
+    exit(EXIT_FAILURE);
   }
   if (ma_decoder_read_pcm_frames(&state->decoder, buffer, frameCount, NULL) !=
       MA_SUCCESS) {
     fprintf(stderr, "%s\n", strerror(errno));
     close(state->client.fd);
     close(state->control.fd);
-    return;
+    exit(EXIT_FAILURE);
   }
   int sended = send(state->client.fd, buffer, sizeof(double) * frameCount, 0);
   if (sended == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
     close(state->client.fd);
     close(state->control.fd);
-    return;
+    exit(EXIT_FAILURE);
   };
   free(buffer);
   (void)pInput;
@@ -133,7 +133,7 @@ int main(int argc, char *argv[]) {
   }
   printf("Init device\n");
 
-  if (send(state.client.fd, &goDeviceConfig, sizeof(struct go_device_config),
+  if (send(state.control.fd, &goDeviceConfig, sizeof(struct go_device_config),
            0) == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
     ma_device_uninit(&device);
@@ -166,6 +166,7 @@ int main(int argc, char *argv[]) {
       printf("Available commands:\n");
       printf("\t\t/help\t\t - show this message\n");
       printf("\t\t/close\t\t - close connection\n");
+      continue;
     }
     printf("Available commands:\n");
     printf("\t\t/help\t\t - show all commands\n");

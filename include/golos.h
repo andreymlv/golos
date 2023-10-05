@@ -3,6 +3,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -11,7 +12,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <external/miniaudio.h>
+#include <miniaudio.h>
 
 struct go_socket {
   int fd;
@@ -32,10 +33,16 @@ struct go_client_data_socket {
 
 struct go_socket go_client_connect(char *address, int port) {
   struct go_socket client;
-  if ((client.fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+  if ((client.fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
   }
+  if (setsockopt(client.fd, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int)) ==
+      -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  };
+  fcntl(client.fd, F_SETFL, O_NONBLOCK);
   printf("Create socket\n");
 
   memset(&client.addr, 0, sizeof(struct sockaddr_in));
@@ -61,11 +68,13 @@ struct go_socket go_client_connect(char *address, int port) {
  *
  * @param[in] port Server port in host order.
  * @param[in] backlog Server number of outstanding connections in the socket's
- * listen queue.
+ * listen queue. (ignore this number now)
  */
 struct go_socket go_server_init(uint16_t port, int backlog) {
+  // TODO(andreymlv): use freeaddrinfo()
+  (void)backlog;
   struct go_socket server;
-  if ((server.fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+  if ((server.fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
   };
@@ -87,10 +96,6 @@ struct go_socket go_server_init(uint16_t port, int backlog) {
     exit(EXIT_FAILURE);
   };
   printf("Socket binded to %d\n", port);
-  if (listen(server.fd, backlog) == -1) {
-    fprintf(stderr, "%s\n", strerror(errno));
-    exit(EXIT_FAILURE);
-  };
   return server;
 }
 
