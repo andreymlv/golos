@@ -4,3 +4,5 @@ client
 server
 compile_commands.json
 build
+rust/golos/target
+.vscode

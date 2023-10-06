@@ -101,8 +101,18 @@ int main(int argc, char *argv[]) {
   }
 
   struct go_client_data_socket state;
-  state.client = go_client_connect(address, port);
-  state.control = go_client_connect(address, port + 1);
+  state.client = go_client_connect(address, port, SOCK_DGRAM);
+  int flags = fcntl(state.client.fd, F_GETFD);
+  if (flags == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  flags |= FD_CLOEXEC;
+  if (fcntl(state.client.fd, F_SETFD, flags) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  state.control = go_client_connect(address, port + 1, SOCK_STREAM);
 
   ma_result result;
   ma_device_config deviceConfig;
@@ -140,6 +150,8 @@ int main(int argc, char *argv[]) {
     ma_decoder_uninit(&state.decoder);
     return -4;
   }
+  printf("Send config: %d, %d, %d\n", goDeviceConfig.format,
+         goDeviceConfig.channels, goDeviceConfig.sample_rate);
 
   if (ma_device_start(&device) != MA_SUCCESS) {
     printf("Failed to start playback device.\n");

@@ -14,8 +14,8 @@
 
 void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                    ma_uint32 frameCount) {
-  int *connection_fd = (int *)pDevice->pUserData;
-  if (connection_fd == NULL) {
+  int *server_fd = (int *)pDevice->pUserData;
+  if (server_fd == NULL) {
     return;
   }
   double *buffer = calloc(frameCount, sizeof(double));
@@ -23,8 +23,8 @@ void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
   }
-  int read = recvfrom(*connection_fd, buffer, sizeof(double) * frameCount, 0,
-                      NULL, NULL);
+  int read =
+      recvfrom(*server_fd, buffer, sizeof(double) * frameCount, 0, NULL, NULL);
   if (read == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
@@ -69,37 +69,36 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  struct go_socket server = go_server_init(port, 10);
-  struct go_socket control = go_server_init(port + 1, 10);
+  struct go_socket server = go_server_init_udp(port);
+  struct go_socket control = go_server_init_tcp(port + 1, 10);
 
   struct sockaddr_in client_addr;
   socklen_t client_len = sizeof(struct sockaddr_in);
   while (true) {
-    if (recvfrom(control.fd, NULL, 1, 0, (struct sockaddr *)&client_addr,
-                 &client_len) == -1) {
-      fprintf(stderr, "%s\n", strerror(errno));
-      exit(EXIT_FAILURE);
-    }
-    char client_ip[INET_ADDRSTRLEN];
-    if (inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN) ==
-        NULL) {
-      fprintf(stderr, "%s\n", strerror(errno));
-      exit(EXIT_FAILURE);
-    };
-    printf("New connection: %s\n", client_ip);
+    int connection_control_fd =
+        accept(control.fd, (struct sockaddr *)&client_addr, &client_len);
     pid_t pid = fork();
     if (pid == -1) {
       fprintf(stderr, "%s\n", strerror(errno));
       exit(EXIT_FAILURE);
     }
     if (pid == 0) {
+      char client_ip[INET_ADDRSTRLEN];
+      if (inet_ntop(AF_INET, &client_addr.sin_addr, client_ip,
+                    INET_ADDRSTRLEN) == NULL) {
+        fprintf(stderr, "%s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+      };
+      printf("New connection: %s\n", client_ip);
+
       struct go_device_config goDeviceConfig;
-      if (recvfrom(control.fd, &goDeviceConfig, sizeof(struct go_device_config),
-                   0, NULL, NULL) == -1) {
+      if (recv(connection_control_fd, &goDeviceConfig,
+               sizeof(struct go_device_config), 0) == -1) {
         fprintf(stderr, "%s\n", strerror(errno));
         exit(EXIT_FAILURE);
       }
-      printf("Received config\n");
+      printf("Received config: %d, %d, %d\n", goDeviceConfig.format,
+             goDeviceConfig.channels, goDeviceConfig.sample_rate);
       ma_device_config deviceConfig;
       ma_device device;
       deviceConfig = ma_device_config_init(ma_device_type_playback);
@@ -120,16 +119,14 @@ int main(int argc, char *argv[]) {
         return -4;
       }
 
-      if (recvfrom(control.fd, NULL, 1, 0, (struct sockaddr *)&client_addr,
-                   &client_len) == -1) {
+      if (recv(connection_control_fd, NULL, 1, 0) == -1) {
         fprintf(stderr, "%s\n", strerror(errno));
         exit(EXIT_FAILURE);
       }
 
-      close(control.fd);
-      close(server.fd);
-
       ma_device_uninit(&device);
+      close(server.fd);
+      close(control.fd);
       printf("Close connection\n");
       exit(EXIT_SUCCESS);
     }
