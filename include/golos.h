@@ -29,6 +29,7 @@ struct go_client_data_socket {
   struct go_socket client;
   struct go_socket control;
   ma_decoder decoder;
+  double *buffer;
 };
 
 struct go_socket go_client_connect(char *address, int port, int protocol) {
@@ -68,7 +69,6 @@ struct go_socket go_client_connect(char *address, int port, int protocol) {
  * @param[in] port Server port in host order.
  */
 struct go_socket go_server_init_udp(uint16_t port) {
-  // TODO(andreymlv): use freeaddrinfo()
   struct go_socket server;
   if ((server.fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
@@ -103,7 +103,6 @@ struct go_socket go_server_init_udp(uint16_t port) {
  * listen queue.
  */
 struct go_socket go_server_init_tcp(uint16_t port, int backlog) {
-  // TODO(andreymlv): use freeaddrinfo()
   struct go_socket server;
   if ((server.fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
     fprintf(stderr, "%s\n", strerror(errno));

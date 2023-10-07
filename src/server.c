@@ -12,40 +12,41 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
+#define BUFFER_SIZE 4096
+
+struct user_data {
+  int data_connection;
+  double *buffer;
+};
+
 void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
                    ma_uint32 frameCount) {
-  int *server_fd = (int *)pDevice->pUserData;
-  if (server_fd == NULL) {
+  struct user_data *data = (struct user_data *)pDevice->pUserData;
+  if (data == NULL) {
     return;
   }
-  double *buffer = calloc(frameCount, sizeof(double));
-  if (buffer == NULL) {
+  if (recv(data->data_connection, data->buffer, sizeof(double) * frameCount,
+           0) == -1) {
     fprintf(stderr, "%s\n", strerror(errno));
-    exit(EXIT_FAILURE);
+    close(data->data_connection);
   }
-  int read =
-      recvfrom(*server_fd, buffer, sizeof(double) * frameCount, 0, NULL, NULL);
-  if (read == -1) {
-    fprintf(stderr, "%s\n", strerror(errno));
-    exit(EXIT_FAILURE);
-  };
-  if (read == 0) {
-    exit(EXIT_SUCCESS);
-  }
-  memcpy(pOutput, buffer, sizeof(double) * frameCount);
-  free(buffer);
+  memcpy(pOutput, data->buffer, sizeof(double) * frameCount);
   (void)pInput;
 }
 
-int main(int argc, char *argv[]) {
-  uint16_t port = 0;
+struct options {
+  uint16_t port;
+};
+
+struct options parse(int argc, char *argv[]) {
+  struct options res = {0};
   int opt = -1;
 
   while ((opt = getopt(argc, argv, "p:")) != -1) {
     switch (opt) {
     case 'p': {
       char *endptr;
-      port = strtoull(optarg, &endptr, 10);
+      res.port = strtoull(optarg, &endptr, 10);
       if (errno != 0) {
         fprintf(stderr, "%s\n", strerror(errno));
         exit(EXIT_FAILURE);
@@ -63,76 +64,124 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if (port == 0) {
+  if (res.port == 0) {
     fprintf(stderr, "The -p option is required.\n");
     fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
     exit(EXIT_FAILURE);
   }
 
-  struct go_socket server = go_server_init_udp(port);
-  struct go_socket control = go_server_init_tcp(port + 1, 10);
+  return res;
+}
 
+void handle_client(int connection, int data_connection) {
+  struct go_device_config goDeviceConfig;
+  if (recv(connection, &goDeviceConfig, sizeof(struct go_device_config), 0) ==
+      -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    close(connection);
+    close(data_connection);
+    exit(EXIT_FAILURE);
+  }
+  printf("Received config: %d, %d, %d\n", goDeviceConfig.format,
+         goDeviceConfig.channels, goDeviceConfig.sample_rate);
+
+  struct user_data user_data;
+  user_data.data_connection = data_connection;
+  user_data.buffer = calloc(BUFFER_SIZE, sizeof(double));
+  ma_device_config deviceConfig;
+  ma_device device;
+  deviceConfig = ma_device_config_init(ma_device_type_playback);
+  deviceConfig.playback.format = goDeviceConfig.format;
+  deviceConfig.playback.channels = goDeviceConfig.channels;
+  deviceConfig.sampleRate = goDeviceConfig.sample_rate;
+  deviceConfig.dataCallback = data_callback;
+  deviceConfig.pUserData = &user_data;
+
+  if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
+    printf("Failed to open playback device.\n");
+    close(connection);
+    close(data_connection);
+    exit(EXIT_FAILURE);
+  }
+
+  if (ma_device_start(&device) != MA_SUCCESS) {
+    printf("Failed to start playback device.\n");
+    close(connection);
+    close(data_connection);
+    ma_device_uninit(&device);
+    exit(EXIT_FAILURE);
+  }
+
+  // TODO(andreymlv): poll recv and timeout on end of track
+  char buffer[256];
+  if (recv(connection, buffer, 255, 0) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    close(connection);
+    close(data_connection);
+    exit(EXIT_FAILURE);
+  }
+
+  ma_device_uninit(&device);
+  free(user_data.buffer);
+}
+
+int main(int argc, char *argv[]) {
+  struct options opt = parse(argc, argv);
+  struct go_socket control = go_server_init_tcp(opt.port, 64);
+  struct go_socket data = go_server_init_tcp(opt.port + 1, 64);
   struct sockaddr_in client_addr;
   socklen_t client_len = sizeof(struct sockaddr_in);
   while (true) {
-    int connection_control_fd =
+    int connection =
         accept(control.fd, (struct sockaddr *)&client_addr, &client_len);
+    if (connection == -1) {
+      fprintf(stderr, "%s\n", strerror(errno));
+      continue;
+    }
+    int data_connection =
+        accept(data.fd, (struct sockaddr *)&client_addr, &client_len);
+    if (data_connection == -1) {
+      fprintf(stderr, "%s\n", strerror(errno));
+      close(connection);
+      continue;
+    }
+
     pid_t pid = fork();
     if (pid == -1) {
       fprintf(stderr, "%s\n", strerror(errno));
+      close(connection);
+      close(data_connection);
+      close(control.fd);
+      close(data.fd);
       exit(EXIT_FAILURE);
-    }
-    if (pid == 0) {
+    } else if (pid == 0) {
+      close(control.fd);
+      close(data.fd);
+
       char client_ip[INET_ADDRSTRLEN];
       if (inet_ntop(AF_INET, &client_addr.sin_addr, client_ip,
                     INET_ADDRSTRLEN) == NULL) {
         fprintf(stderr, "%s\n", strerror(errno));
+        close(connection);
+        close(data_connection);
         exit(EXIT_FAILURE);
       };
       printf("New connection: %s\n", client_ip);
 
-      struct go_device_config goDeviceConfig;
-      if (recv(connection_control_fd, &goDeviceConfig,
-               sizeof(struct go_device_config), 0) == -1) {
-        fprintf(stderr, "%s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-      }
-      printf("Received config: %d, %d, %d\n", goDeviceConfig.format,
-             goDeviceConfig.channels, goDeviceConfig.sample_rate);
-      ma_device_config deviceConfig;
-      ma_device device;
-      deviceConfig = ma_device_config_init(ma_device_type_playback);
-      deviceConfig.playback.format = goDeviceConfig.format;
-      deviceConfig.playback.channels = goDeviceConfig.channels;
-      deviceConfig.sampleRate = goDeviceConfig.sample_rate;
-      deviceConfig.dataCallback = data_callback;
-      deviceConfig.pUserData = &server.fd;
+      handle_client(connection, data_connection);
 
-      if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
-        printf("Failed to open playback device.\n");
-        return -3;
-      }
-
-      if (ma_device_start(&device) != MA_SUCCESS) {
-        printf("Failed to start playback device.\n");
-        ma_device_uninit(&device);
-        return -4;
-      }
-
-      if (recv(connection_control_fd, NULL, 1, 0) == -1) {
-        fprintf(stderr, "%s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-      }
-
-      ma_device_uninit(&device);
-      close(server.fd);
-      close(control.fd);
+      close(connection);
+      close(data_connection);
       printf("Close connection\n");
       exit(EXIT_SUCCESS);
+    } else {
+      close(connection);
+      close(data_connection);
     }
   }
 
-  close(server.fd);
+  close(data.fd);
   close(control.fd);
+
   exit(EXIT_SUCCESS);
 }
