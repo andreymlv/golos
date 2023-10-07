@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -125,11 +126,30 @@ void handle_client(int connection, int data_connection) {
   free(user_data.buffer);
 }
 
+void sigchld_handler(int s) {
+  (void)s;
+  // waitpid() might overwrite errno, so we save and restore it:
+  int saved_errno = errno;
+
+  while (waitpid(-1, NULL, WNOHANG) > 0)
+    ;
+
+  errno = saved_errno;
+}
+
 int main(int argc, char *argv[]) {
   struct options opt = parse(argc, argv);
   struct go_socket control = go_server_init_tcp(opt.port, 64);
   struct go_socket data = go_server_init_tcp(opt.port + 1, 64);
   struct sockaddr_in client_addr;
+  struct sigaction sa;
+  sa.sa_handler = sigchld_handler; // reap all dead processes
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+    fprintf(stderr, "%s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
   socklen_t client_len = sizeof(struct sockaddr_in);
   while (true) {
     int connection =
