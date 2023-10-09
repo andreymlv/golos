@@ -13,7 +13,7 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
-#define BUFFER_SIZE 4096
+#define BUFFER_SIZE 10240
 
 struct user_data {
   int data_connection;
@@ -26,12 +26,19 @@ void data_callback(ma_device *pDevice, void *pOutput, const void *pInput,
   if (data == NULL) {
     return;
   }
-  if (recv(data->data_connection, data->buffer, sizeof(double) * frameCount,
-           0) == -1) {
-    fprintf(stderr, "%s\n", strerror(errno));
-    close(data->data_connection);
+  size_t total = 0;
+  size_t to_receive = frameCount * sizeof(double);
+  while (total < to_receive) {
+    ssize_t bytes = recv(data->data_connection, data->buffer + total,
+                         to_receive - total, 0);
+    if (bytes == -1) {
+      fprintf(stderr, "%s\n", strerror(errno));
+      close(data->data_connection);
+    }
+    total += bytes;
   }
-  memcpy(pOutput, data->buffer, sizeof(double) * frameCount);
+  memcpy(pOutput, data->buffer, total);
+  printf("%zu\n", total);
   (void)pInput;
 }
 
@@ -75,7 +82,7 @@ struct options parse(int argc, char *argv[]) {
 }
 
 void handle_client(int connection, int data_connection) {
-  struct go_device_config goDeviceConfig;
+  struct go_device_config goDeviceConfig = {0};
   if (recv(connection, &goDeviceConfig, sizeof(struct go_device_config), 0) ==
       -1) {
     fprintf(stderr, "%s\n", strerror(errno));

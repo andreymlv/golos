@@ -28,7 +28,8 @@ struct go_device_config {
 struct go_client_data_socket {
   struct go_socket client;
   struct go_socket control;
-  ma_decoder decoder;
+  ma_decoder decoder; // For read (File mode)
+  ma_encoder encoder; // For write (Capture mode)
   double *buffer;
 };
 
@@ -38,6 +39,12 @@ struct go_socket go_client_connect(char *address, int port, int protocol) {
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
   }
+  // int flags = fcntl(client.fd, F_GETFD);
+  // if (flags == -1) {
+  // }
+  // flags |= O_NONBLOCK;
+  // if (fcntl(client.fd, F_SETFD, flags) == -1) {
+  // }
   if (setsockopt(client.fd, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int)) ==
       -1) {
     fprintf(stderr, "%s\n", strerror(errno));
@@ -108,7 +115,12 @@ struct go_socket go_server_init_tcp(uint16_t port, int backlog) {
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
   };
-
+  // int flags = fcntl(server.fd, F_GETFD);
+  // if (flags == -1) {
+  // }
+  // flags |= O_NONBLOCK;
+  // if (fcntl(server.fd, F_SETFD, flags) == -1) {
+  // }
   if (setsockopt(server.fd, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int)) ==
       -1) {
     fprintf(stderr, "%s\n", strerror(errno));
